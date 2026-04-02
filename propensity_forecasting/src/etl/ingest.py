@@ -139,6 +139,80 @@ def filter_sources(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Level5 Category Filter
+# ─────────────────────────────────────────────────────────────────────────────
+
+def filter_level5_categories(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """
+    Drop level5 categories that are entirely zero-valued or have too few
+    non-zero transaction rows.  Applied on the raw (pre-aggregation) DataFrame
+    so the decision is made on actual transaction_amount_usd values.
+
+    Config key  data.level5_min_nonzero_rows  (default: 10)
+    keeps categories where:
+        - Zero_Percentage < 100  (at least one real transaction)
+        - Non_zero_count  > level5_min_nonzero_rows
+    """
+    amount_col = "transaction_amount_usd"
+    level5_col = "level5"
+    min_nonzero: int = cfg["data"].get("level5_min_nonzero_rows", 10)
+
+    if amount_col not in df.columns or level5_col not in df.columns:
+        logger.warning(
+            "filter_level5: required columns missing "
+            f"({amount_col!r} or {level5_col!r}) — skipping filter."
+        )
+        return df
+
+    # Drop rows missing key fields before computing per-category stats
+    key_cols = [c for c in [amount_col, "value_datetime", "opcos", level5_col]
+                if c in df.columns]
+    n_before_drop = len(df)
+    df = df.dropna(subset=key_cols).copy()
+    n_dropped_na = n_before_drop - len(df)
+    if n_dropped_na:
+        logger.info(
+            f"filter_level5: dropped {n_dropped_na:,} rows with missing key fields "
+            f"({', '.join(key_cols)})"
+        )
+
+    # Compute per-level5: non-zero count and zero percentage
+    zero_stats = (
+        df.groupby(level5_col)[amount_col]
+        .agg(
+            nonzero_count=lambda x: (x != 0).sum(),
+            zero_pct=lambda x: (x == 0).mean() * 100,
+        )
+        .reset_index()
+    )
+
+    # Keep: NOT all-zero AND enough non-zero rows
+    keep_mask = (
+        (zero_stats["zero_pct"] < 100) &
+        (zero_stats["nonzero_count"] > min_nonzero)
+    )
+    keep_cats = zero_stats.loc[keep_mask, level5_col].tolist()
+    drop_cats = zero_stats.loc[~keep_mask, level5_col].tolist()
+
+    n_cats_before = df[level5_col].nunique()
+    if drop_cats:
+        preview = drop_cats[:5]
+        extra = f" … +{len(drop_cats) - 5} more" if len(drop_cats) > 5 else ""
+        logger.info(
+            f"filter_level5: removing {len(drop_cats)} level5 categories "
+            f"(all-zero or non_zero ≤ {min_nonzero}): {preview}{extra}"
+        )
+
+    df = df[df[level5_col].isin(keep_cats)].copy()
+    n_cats_after = df[level5_col].nunique()
+    logger.info(
+        f"filter_level5: {n_cats_before} → {n_cats_after} level5 categories kept "
+        f"({n_cats_before - n_cats_after} removed, min_nonzero_rows={min_nonzero})"
+    )
+    return df
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Monthly Aggregation
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -172,7 +246,7 @@ def aggregate_monthly(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     df_monthly["amount_raw"] = df_monthly["amount"].copy()
 
     # Drop series with fewer than min_series_data_points months of data
-    min_pts = cfg["data"].get("min_series_data_points", 35)
+    min_pts = cfg["data"].get("min_series_data_points", 0)
     series_counts = (
         df_monthly.groupby(GROUP_COLS).size().reset_index(name="data_points")
     )
@@ -255,6 +329,7 @@ def load_and_aggregate(cfg: dict) -> pd.DataFrame:
 
     df_raw = ingest(cfg)
     df_raw = filter_sources(df_raw, cfg)
+    df_raw = filter_level5_categories(df_raw, cfg)
     df_monthly = aggregate_monthly(df_raw, cfg)
     del df_raw
     gc.collect()

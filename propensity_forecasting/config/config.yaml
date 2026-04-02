@@ -1,10 +1,11 @@
 # ─── Pipeline Configuration ────────────────────────────────────────────────
 
 data:
-  data_file: "hitachi_clean_level2_level5_new.csv"
+  data_file: "fiscal_metrics_cashflow_default_flows.csv"
   source_filter: "OAT"           # Filter to only this source value; set null to disable
   exclude_sources: []             # List of source values to exclude
   min_series_data_points: 35     # Minimum data points per series to include (matches original > 35 filter)
+  level5_min_nonzero_rows: 10   # Drop level5 categories with ≤ this many non-zero raw transactions
 
 # ─── Date Splits ────────────────────────────────────────────────────────────
 dates:
@@ -14,7 +15,7 @@ dates:
 
 # ─── Model & Forecasting ────────────────────────────────────────────────────
 model:
-  forecast_horizons:       2
+  forecast_horizons:       14
   min_history_months:       6
   sparse_wma_window:        2
   nonzero_threshold:     0.01
@@ -35,7 +36,7 @@ performance:
 
 # ─── Output ─────────────────────────────────────────────────────────────────
 output:
-  output_root: "Hitachi_global_forecasting_level5_perseries_netcf"
+  output_root: "Hitachi_forecasting_level5_perseries_netcf"
 
 # ─── GCP (disabled for local run; configure when connecting to GCP) ─────────
 gcp:
