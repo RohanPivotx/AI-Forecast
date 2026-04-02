@@ -1,0 +1,16 @@
+pandas==2.2.3
+numpy==2.2.3
+scikit-learn==1.6.1
+lightgbm==4.6.0
+xgboost==3.2.0
+matplotlib==3.10.8
+catboost==1.2.10
+seaborn==0.13.2
+# statmodels==0.14.4
+# pmdarima==2.0.4
+
+##If you are going to use TFT model
+# pytorch-forecasting==1.6.1
+#  pytorch-lightning==2.6.1
+# torch==2.10.0
+pytest>=8.0

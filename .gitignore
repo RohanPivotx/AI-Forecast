@@ -1,0 +1,45 @@
+# ─── Only track the propensity_forecasting package ───────────────────────────
+# Everything at the root is excluded by default; only the source folder is kept.
+/*
+!/propensity_forecasting/
+!.gitignore
+!.dockerignore
+
+# ─── Inside propensity_forecasting — exclude generated outputs ───────────────
+
+# Python byte-code and caches
+propensity_forecasting/**/__pycache__/
+propensity_forecasting/**/*.pyc
+propensity_forecasting/**/*.pyo
+propensity_forecasting/**/*.pyd
+propensity_forecasting/**/.pytest_cache/
+propensity_forecasting/**/*.egg-info/
+
+# Virtual environments (if created inside the project)
+propensity_forecasting/venv/
+propensity_forecasting/.venv/
+propensity_forecasting/env/
+
+# ─── Pipeline run outputs (keep out of git) ───────────────────────────────────
+# All run directories under the output root
+Hitachi_global_forecasting_level5_perseries_netcf/
+
+# Per-run artefacts wherever they live under propensity_forecasting
+propensity_forecasting/**/run_*/
+propensity_forecasting/**/*.pkl
+propensity_forecasting/**/*.pickle
+
+# Large data & report CSVs
+propensity_forecasting/**/*.csv
+
+# Log files
+propensity_forecasting/**/*.log
+propensity_forecasting/**/logs.txt
+
+# ─── OS / editor noise ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

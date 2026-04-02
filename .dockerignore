@@ -1,0 +1,51 @@
+# ─── Python artefacts ────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# ─── Virtual environments ─────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env
+
+# ─── Pipeline run outputs (large, not needed in image) ────────────────────────
+Hitachi_global_forecasting_level5_perseries_netcf/
+**/run_*/
+**/*.pkl
+**/*.pickle
+
+# ─── Data files (mount at runtime; do not bake into image) ───────────────────
+*.csv
+hitachi_clean_level2_level5_new.csv
+fiscal_metrics_cashflow_default_flows.csv
+# global_forecasting_level5_perseries_netcf_200.py
+
+# ─── Test artefacts ───────────────────────────────────────────────────────────
+.pytest_cache/
+**/.pytest_cache/
+htmlcov/
+.coverage
+*.cover
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs.txt
+
+# ─── OS / editor noise ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── Git metadata ─────────────────────────────────────────────────────────────
+.git/
+.gitignore

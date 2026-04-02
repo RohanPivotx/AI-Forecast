@@ -1,0 +1,49 @@
+# ─── Pipeline Configuration ────────────────────────────────────────────────
+
+data:
+  data_file: "hitachi_clean_level2_level5_new.csv"
+  source_filter: "OAT"           # Filter to only this source value; set null to disable
+  exclude_sources: []             # List of source values to exclude
+  min_series_data_points: 35     # Minimum data points per series to include (matches original > 35 filter)
+
+# ─── Date Splits ────────────────────────────────────────────────────────────
+dates:
+  train_cutoff:   "2025-10-31"
+  test_cutoff:    "2026-01-31"
+  forecast_start: "2026-02-01"
+
+# ─── Model & Forecasting ────────────────────────────────────────────────────
+model:
+  forecast_horizons:       2
+  min_history_months:       6
+  sparse_wma_window:        2
+  nonzero_threshold:     0.01
+  max_lag_data_fraction: 0.70
+  min_nonzero_train_rows:   5
+  enable_model_selection: true
+  enable_ensemble:         true
+  ensemble_top_k:            3
+  cv_folds:                  3
+  occur_threshold:        0.45
+  min_train_months:          5
+
+# ─── Performance ────────────────────────────────────────────────────────────
+performance:
+  parallel_workers:      4      # Set to number of physical CPU cores available
+  batch_flush_threshold: 200    # Lower (e.g. 100) if RAM is tight
+  forecast_batch_size:   512
+
+# ─── Output ─────────────────────────────────────────────────────────────────
+output:
+  output_root: "Hitachi_global_forecasting_level5_perseries_netcf"
+
+# ─── GCP (disabled for local run; configure when connecting to GCP) ─────────
+gcp:
+  use_gcs:        false           # Set true to read/write via GCS
+  project_id:     null            # GCP project ID
+  bucket_name:    null            # GCS bucket name
+  bq_dataset:     null            # BigQuery dataset
+  bq_table:       null            # BigQuery table
+  data_prefix:    "data/"         # GCS prefix for input data
+  model_prefix:   "models/"       # GCS prefix for persisted models
+  reports_prefix: "reports/"      # GCS prefix for output reports
