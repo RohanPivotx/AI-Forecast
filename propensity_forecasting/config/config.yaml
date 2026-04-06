@@ -5,7 +5,7 @@ data:
   source_filter: "OAT"           # Filter to only this source value; set null to disable
   exclude_sources: []             # List of source values to exclude
   min_series_data_points: 35     # Minimum data points per series to include (matches original > 35 filter)
-  level5_min_nonzero_rows: 10   # Drop level5 categories with ≤ this many non-zero raw transactions
+  level5_min_nonzero_rows: 5   # Drop level5 categories with ≤ this many non-zero raw transactions
 
 # ─── Date Splits ────────────────────────────────────────────────────────────
 dates:

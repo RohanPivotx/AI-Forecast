@@ -17,6 +17,7 @@ env/
 
 # ─── Pipeline run outputs (large, not needed in image) ────────────────────────
 Hitachi_global_forecasting_level5_perseries_netcf/
+Hitachi_forecasting_level5_perseries_netcf/
 **/run_*/
 **/*.pkl
 **/*.pickle

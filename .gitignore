@@ -23,6 +23,8 @@ propensity_forecasting/env/
 # ─── Pipeline run outputs (keep out of git) ───────────────────────────────────
 # All run directories under the output root
 Hitachi_global_forecasting_level5_perseries_netcf/
+Hitachi_forecasting_level5_perseries_netcf/
+
 
 # Per-run artefacts wherever they live under propensity_forecasting
 propensity_forecasting/**/run_*/
