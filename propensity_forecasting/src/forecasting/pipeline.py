@@ -805,6 +805,7 @@ class ForecastingPipeline:
                 if abs(total_actual) > nz
                 else float("nan")
             )
+            accuracy = max(0.0, 100.0 - wmape_safe(yt, yp)) if len(yt) > 0 else float("nan")
             monthly_detail_rows.append(
                 {
                     **dict(zip(GROUP_COLS, hier_vals)),
@@ -813,12 +814,16 @@ class ForecastingPipeline:
                     "forecast_amount": total_forecast,
                     "absolute_variance": abs_var,
                     "pct_variance": pct_var,
+                    "accuracy": accuracy,
                     "method": gwdf["method"].iloc[0] if "method" in gwdf.columns else "unknown",
                 }
             )
-        pd.DataFrame(monthly_detail_rows).sort_values(
-            GROUP_COLS + ["date"]
-        ).reset_index(drop=True).to_csv(
+        monthly_detail_df = (
+            pd.DataFrame(monthly_detail_rows)
+            .sort_values(GROUP_COLS + ["date"])
+            .reset_index(drop=True)
+        )
+        monthly_detail_df.to_csv(
             os.path.join(
                 self.run_dir,
                 "reports",
@@ -826,6 +831,26 @@ class ForecastingPipeline:
             ),
             index=False,
         )
+        monthly_detail_rows_df = monthly_detail_df.rename(
+            columns={
+                "date": "period_year_month",
+                "opcos": "opcos",
+                "entity_region": "region",
+                "level5": "cash_flow_category",
+                "actual_amount": "actuals",
+                "forecast_amount": "ai_forecast_numbers",
+                "absolute_variance": "aifc__actuals",
+                "pct_variance": "variance",
+            },
+        )
+        monthly_detail_rows_df.to_csv(
+            os.path.join(
+                self.run_dir,
+                "forecast_vs_actuals_by_hierarchy_monthly_upload.csv",
+            ),
+            index=False,
+        )
+
 
         merged_valid.to_csv(
             os.path.join(self.run_dir, "reports", "forecast_vs_actuals.csv"),
