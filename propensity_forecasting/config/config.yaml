@@ -2,9 +2,10 @@
 
 data:
   data_file: "fiscal_metrics_cashflow_default_flows.csv"
+  manual_forecast_file: "Grid (Forecast Worksheet)_20260330_112016.csv"  # Manual planner forecast (Grid CSV); set null to disable
   source_filter: "OAT"           # Filter to only this source value; set null to disable
   exclude_sources: []             # List of source values to exclude
-  min_series_data_points: 35     # Minimum data points per series to include (matches original > 35 filter)
+  min_series_data_points: 0   # Minimum data points per series to include (matches original > 35 filter)
   level5_min_nonzero_rows: 5   # Drop level5 categories with ≤ this many non-zero raw transactions
 
 # ─── Date Splits ────────────────────────────────────────────────────────────
@@ -18,7 +19,7 @@ model:
   forecast_horizons:       14
   min_history_months:       6
   sparse_wma_window:        2
-  nonzero_threshold:     0.01
+  nonzero_threshold:     0.1
   max_lag_data_fraction: 0.70
   min_nonzero_train_rows:   5
   enable_model_selection: true
@@ -43,7 +44,7 @@ gcp:
   use_gcs:        false           # Set true to read/write via GCS
   project_id:     null            # GCP project ID
   bucket_name:    null            # GCS bucket name
-  bq_dataset:     null            # BigQuery dataset
+  bq_dataset:     null # hd-procurement-poc-gemini.hd1d_curated_cashflow.ai_forecast_cashflow           # BigQuery dataset
   bq_table:       null            # BigQuery table
   data_prefix:    "data/"         # GCS prefix for input data
   model_prefix:   "models/"       # GCS prefix for persisted models

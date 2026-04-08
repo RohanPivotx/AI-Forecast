@@ -513,7 +513,7 @@ class ForecastingPipeline:
                     "forecast_amount"
                 ].fillna(0.0)
 
-            out = os.path.join(self.run_dir, "forecasts_3months.csv")
+            out = os.path.join(self.run_dir, "reports", "forecasts_3months.csv")
             forecast_df.to_csv(out, index=False)
             logger.info(f"Combined forecast saved → {out}")
 
@@ -625,6 +625,117 @@ class ForecastingPipeline:
         )
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Manual Forecast Loader — Grid CSV → monthly long format
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _load_manual_forecast(self) -> Optional[pd.DataFrame]:
+        """
+        Load the planner Grid CSV (wide format) and transform it to the same
+        monthly long format as df_monthly so it can be concatenated with actuals.
+
+        Only months strictly AFTER the last actual month are kept, so actuals
+        and manual forecast never overlap in the combined series.
+
+        Returns None when no file is configured, the file is missing, or no
+        months fall after the last actual month.
+        """
+        manual_file = self.cfg["data"].get("manual_forecast_file")
+        if not manual_file:
+            return None
+
+        if not os.path.exists(manual_file):
+            logger.warning(f"Manual forecast file not found: {manual_file!r} — skipping")
+            return None
+
+        logger.info(f"Loading manual forecast from: {manual_file}")
+        df_grid = pd.read_csv(manual_file)
+
+        # Drop Opening/Closing balance rows — they have NaN in Level 2 / Level 5.
+        # All Netflow rows (the ones we want) have both columns populated.
+        df_grid = df_grid.dropna(subset=["Level 2", "Level 5"])
+
+        # Detect date columns (any column whose name contains a 4-digit year)
+        id_cols = ["Account Name", "Level 2", "Level 5", "Type"]
+        date_cols = [c for c in df_grid.columns if c not in id_cols and "20" in str(c)]
+
+        if not date_cols:
+            logger.warning("Manual forecast: no date columns found — skipping")
+            return None
+
+        # Melt wide → long
+        df_long = df_grid.melt(
+            id_vars=id_cols,
+            value_vars=date_cols,
+            var_name="Month",
+            value_name="amount",
+        )
+
+        # Parse month strings like "Apr 2026"
+        df_long["Month"] = pd.to_datetime(df_long["Month"], format="%b %Y", errors="coerce")
+        df_long = df_long.dropna(subset=["Month"])
+
+        # Align date to month-start timestamp (matches df_monthly['date'] format)
+        df_long["date"] = (
+            df_long["Month"].dt.to_period("M").dt.to_timestamp(how="start")
+        )
+        df_long = df_long.drop(columns=["Month", "Type"])
+
+        # Rename to match pipeline schema
+        df_long = df_long.rename(columns={
+            "Account Name": "account_name",
+            "Level 2":      "level2",
+            "Level 5":      "level5",
+        })
+
+        # Keep only months AFTER the last real actual month
+        last_actual_date = self.df_monthly["date"].max()
+        df_long = df_long[df_long["date"] > last_actual_date].copy()
+
+        if df_long.empty:
+            logger.info(
+                f"Manual forecast: all months are on or before last actual "
+                f"({last_actual_date.date()}) — nothing appended"
+            )
+            return None
+
+        # Drop rows with zero / NaN amount — planner left them blank
+        df_long = df_long[df_long["amount"].notna() & (df_long["amount"] != 0)].copy()
+
+        # Build a 1-to-1 account_name → entity metadata mapping from the actuals.
+        # Using keep="first" in drop_duplicates prevents row explosion when an
+        # account appears under multiple entity names in the historical data.
+        meta_cols = ["account_name", "opcos", "entity_region", "entity_country", "entity_name"]
+        df_meta = (
+            self.df_monthly[meta_cols]
+            .drop_duplicates(subset=["account_name"], keep="first")
+        )
+
+        df_long = df_long.merge(df_meta, on="account_name", how="left")
+
+        # Aggregate to one row per (date × GROUP_COLS) — handles any residual duplication
+        df_manual = (
+            df_long
+            .groupby(["date"] + GROUP_COLS, as_index=False)["amount"]
+            .sum()
+        )
+        df_manual["amount_raw"] = df_manual["amount"].copy()
+
+        n_unknown = df_manual["opcos"].isna().sum()
+        if n_unknown:
+            logger.warning(
+                f"Manual forecast: {n_unknown} rows could not be matched to entity "
+                f"metadata — they will be excluded from the comparison"
+            )
+            df_manual = df_manual.dropna(subset=["opcos"])
+
+        logger.info(
+            f"Manual forecast: {len(df_manual):,} rows added for "
+            f"{sorted(df_manual['date'].dt.date.unique())} "
+            f"({df_manual[GROUP_COLS].drop_duplicates().shape[0]} series)"
+        )
+        return df_manual
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Step 9 — Forecast vs Actuals
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -638,13 +749,26 @@ class ForecastingPipeline:
         forecast_end = forecast_start + pd.DateOffset(
             months=self.cfg["model"]["forecast_horizons"] - 1
         )
+
+        # Real actuals within the forecast window (from aggregated transaction data)
         actuals_fc = self.df_monthly[
             (self.df_monthly["date"] >= forecast_start)
             & (self.df_monthly["date"] <= forecast_end)
         ].copy()
 
+        # Load manual planner forecast (months strictly after last actual)
+        df_manual = self._load_manual_forecast()
+        if df_manual is not None:
+            # Keep only rows within the AI forecast horizon
+            df_manual = df_manual[
+                (df_manual["date"] >= forecast_start)
+                & (df_manual["date"] <= forecast_end)
+            ]
+            if df_manual.empty:
+                df_manual = None
+
         if len(actuals_fc) > 0:
-            self._run_actuals_comparison(actuals_fc, label="forecast-period")
+            self._run_actuals_comparison(actuals_fc, label="forecast-period", df_manual=df_manual)
         else:
             logger.info(
                 "No actuals found for forecast period — "
@@ -658,7 +782,7 @@ class ForecastingPipeline:
             ][GROUP_COLS + ["date", "amount", "amount_raw"]].copy()
             self._step_test_period_validation(actuals_te)
 
-    def _run_actuals_comparison(self, actuals: pd.DataFrame, label: str = ""):
+    def _run_actuals_comparison(self, actuals: pd.DataFrame, label: str = "", df_manual: Optional[pd.DataFrame] = None):
         """Merge forecasts with actuals and compute + persist metric reports."""
         if "amount_raw" not in actuals.columns and "amount" in actuals.columns:
             actuals = actuals.copy()
@@ -831,26 +955,124 @@ class ForecastingPipeline:
             ),
             index=False,
         )
-        monthly_detail_rows_df = monthly_detail_df.rename(
-            columns={
-                "date": "period_year_month",
-                "opcos": "opcos",
-                "entity_region": "region",
-                "level5": "cash_flow_category",
-                "actual_amount": "actuals",
-                "forecast_amount": "ai_forecast_numbers",
-                "absolute_variance": "aifc__actuals",
-                "pct_variance": "variance",
-            },
-        )
-        monthly_detail_rows_df.to_csv(
-            os.path.join(
-                self.run_dir,
-                "forecast_vs_actuals_by_hierarchy_monthly_upload.csv",
-            ),
-            index=False,
-        )
-
+        # Upload CSV — built exclusively from the manual planner forecast.
+        # Real-actuals reports above stay untouched; only THIS file gets manual data.
+        if df_manual is not None and not df_manual.empty:
+            manual_actuals = (
+                df_manual[GROUP_COLS + ["date", "amount_raw"]]
+                .rename(columns={"amount_raw": "actual_amount"})
+            )
+            merged_manual = self.forecast_df.merge(
+                manual_actuals, on=GROUP_COLS + ["date"], how="outer"
+            )
+            manual_detail_rows = []
+            for grp_key, gwdf in merged_manual.groupby(GROUP_COLS + ["date"]):
+                hier_vals = grp_key[: len(GROUP_COLS)]
+                date_val = grp_key[-1]
+                yt = gwdf["actual_amount"].fillna(0).values
+                yp = gwdf["forecast_amount"].fillna(0).values
+                total_actual = float(yt.sum())
+                total_forecast = float(yp.sum())
+                abs_var = total_forecast - total_actual
+                pct_var = (
+                    abs_var / abs(total_actual) * 100
+                    if abs(total_actual) > nz
+                    else float("nan")
+                )
+                accuracy = max(0.0, 100.0 - wmape_safe(yt, yp)) if len(yt) > 0 else float("nan")
+                manual_detail_rows.append(
+                    {
+                        **dict(zip(GROUP_COLS, hier_vals)),
+                        "date": date_val,
+                        "actual_amount": total_actual,
+                        "forecast_amount": total_forecast,
+                        "absolute_variance": abs_var,
+                        "pct_variance": pct_var,
+                        "accuracy": accuracy,
+                        "method": gwdf["method"].iloc[0] if "method" in gwdf.columns else "unknown",
+                    }
+                )
+            monthly_detail_rows_df = (
+                pd.DataFrame(manual_detail_rows)
+                .sort_values(GROUP_COLS + ["date"])
+                .reset_index(drop=True)
+                .rename(columns={
+                    "date": "period_year_month",
+                    "entity_region": "region",
+                    "level5": "cash_flow_category",
+                    "actual_amount": "actuals",
+                    "forecast_amount": "ai_forecast_numbers",
+                    "absolute_variance": "aifc__actuals",
+                    "pct_variance": "variance",
+                })
+            )
+            monthly_detail_rows_df.to_csv(
+                os.path.join(
+                    self.run_dir,
+                    "reports",
+                    "forecast_vs_actuals_by_hierarchy_monthly_upload.csv",
+                ),
+                index=False,
+            )
+        elif not actuals.empty:
+            # No manual forecast — outer join of AI forecast with real actuals
+            logger.info("No manual forecast available — upload CSV built from real actuals (outer join)")
+            outer_merged = self.forecast_df.merge(
+                actuals, on=GROUP_COLS + ["date"], how="outer"
+            )
+            outer_detail_rows = []
+            for grp_key, gwdf in outer_merged.groupby(GROUP_COLS + ["date"]):
+                hier_vals = grp_key[: len(GROUP_COLS)]
+                date_val = grp_key[-1]
+                yt = gwdf["actual_amount"].fillna(0).values
+                yp = gwdf["forecast_amount"].fillna(0).values
+                total_actual = float(yt.sum())
+                total_forecast = float(yp.sum())
+                abs_var = total_forecast - total_actual
+                pct_var = (
+                    abs_var / abs(total_actual) * 100
+                    if abs(total_actual) > nz
+                    else float("nan")
+                )
+                accuracy = max(0.0, 100.0 - wmape_safe(yt, yp)) if len(yt) > 0 else float("nan")
+                outer_detail_rows.append(
+                    {
+                        **dict(zip(GROUP_COLS, hier_vals)),
+                        "date": date_val,
+                        "actual_amount": total_actual,
+                        "forecast_amount": total_forecast,
+                        "absolute_variance": abs_var,
+                        "pct_variance": pct_var,
+                        "accuracy": accuracy,
+                        "method": gwdf["method"].iloc[0] if "method" in gwdf.columns else "unknown",
+                    }
+                )
+            (
+                pd.DataFrame(outer_detail_rows)
+                .sort_values(GROUP_COLS + ["date"])
+                .reset_index(drop=True)
+                .rename(columns={
+                    "date": "period_year_month",
+                    "entity_region": "region",
+                    "level5": "cash_flow_category",
+                    "actual_amount": "actuals",
+                    "forecast_amount": "ai_forecast_numbers",
+                    "absolute_variance": "aifc__actuals",
+                    "pct_variance": "variance",
+                })
+                .to_csv(
+                    os.path.join(
+                        self.run_dir,
+                        "reports",
+                        "forecast_vs_actuals_by_hierarchy_monthly_upload.csv",
+                    ),
+                    index=False,
+                )
+            )
+        else:
+            logger.warning(
+                "Upload CSV not generated — no actuals and no manual forecast available"
+            )
 
         merged_valid.to_csv(
             os.path.join(self.run_dir, "reports", "forecast_vs_actuals.csv"),
