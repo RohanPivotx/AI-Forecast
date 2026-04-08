@@ -79,6 +79,21 @@ class ForecastingPipeline:
         ]:
             os.makedirs(os.path.join(self.run_dir, sub), exist_ok=True)
 
+        # Attach a FileHandler to the root logger so all named loggers write to disk
+        import logging as _logging
+        _log_path = os.path.join(self.run_dir,"reports", "logs.txt")
+        _file_handler = _logging.FileHandler(_log_path, encoding="utf-8")
+        _file_handler.setLevel(_logging.DEBUG)
+        _file_handler.setFormatter(_logging.Formatter(
+            "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        _root = _logging.getLogger()
+        _root.addHandler(_file_handler)
+        if _root.level == _logging.NOTSET or _root.level > _logging.DEBUG:
+            _root.setLevel(_logging.DEBUG)
+        self._log_file_handler = _file_handler
+
         # Runtime state
         self.df_monthly: Optional[pd.DataFrame] = None
         self.df_train: Optional[pd.DataFrame] = None
@@ -513,7 +528,7 @@ class ForecastingPipeline:
                     "forecast_amount"
                 ].fillna(0.0)
 
-            out = os.path.join(self.run_dir, "reports", "forecasts_3months.csv")
+            out = os.path.join(self.run_dir, "reports", "future_forecasts.csv")
             forecast_df.to_csv(out, index=False)
             logger.info(f"Combined forecast saved → {out}")
 
